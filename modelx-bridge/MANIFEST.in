@@ -1,0 +1,5 @@
+# The sdist carries the suites and the sample model; the wheel carries the
+# model and never the suites (pyproject.toml).
+graft modelx_bridge/tests
+graft modelx_bridge/models
+global-exclude *.py[cod]

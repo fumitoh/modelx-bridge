@@ -1,0 +1,76 @@
+[build-system]
+# 77.0.3 is the oldest setuptools measured to build `license` as an SPDX
+# expression (PEP 639); 76.1.0 refuses it. See modelx-bridge/pyproject.toml.
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modelx-mcp"
+dynamic = ["version"]
+description = "An MCP server that lets an AI client such as Claude Code read a live modelx session"
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "Fumito Hamamura" }]
+keywords = ["modelx", "lifelib", "actuarial", "mcp", "model-context-protocol", "claude"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Scientific/Engineering",
+]
+# Measured 2026-10-06 on Linux x86-64, the built wheels in fresh venvs with
+# both packages' suites run from there: 3.10.20, 3.11.15, 3.12.3, 3.13.14 and
+# 3.14.8 pass (modelx-bridge/pyproject.toml has the method and its other
+# bounds). mcp itself needs 3.10.
+requires-python = ">=3.10"
+dependencies = [
+    # 0.1.0 was built and measured on bridge 0.10.0, the only bridge release
+    # (protocol section 18). A 0.x minor release of the bridge may change what
+    # it answers.
+    "modelx-bridge>=0.10.0,<0.11",
+    # 1.10.0 passes (on 3.10 with every other floor, on 3.12 and on 3.13), and
+    # so does 1.30.0, the newest 1.x (on 3.10 to 3.14). 1.9.4, installed with
+    # --no-deps: the server cannot be built ("Tool.from_function() got an
+    # unexpected keyword argument 'structured_output'"), so test_stdio fails 28
+    # checks and test_synthetic stops after 44. 2.3.0: it cannot be imported
+    # ("No module named 'mcp.server.fastmcp'"; mcp 2 renamed FastMCP to
+    # MCPServer), so the same 28 fail and test_synthetic stops at once.
+    "mcp>=1.10.0,<2",
+    # server.py imports anyio itself (anyio.run, anyio.wrap_file), so it is
+    # declared rather than left to arrive through mcp. 4.5 is mcp's own floor:
+    # 1.10.0 and 1.30.0 both require anyio>=4.5, so nothing older can be
+    # installed beside them. 4.5.0 passes (on 3.10, 3.12 and 3.13, with mcp
+    # 1.10.0), and so does 4.15.1.
+    "anyio>=4.5",
+]
+
+[project.scripts]
+modelx-mcp = "modelx_mcp.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/fumitoh/modelx-bridge"
+Source = "https://github.com/fumitoh/modelx-bridge"
+Issues = "https://github.com/fumitoh/modelx-bridge/issues"
+
+[tool.setuptools]
+# The tests ship in the sdist (MANIFEST.in) and never in the wheel; see
+# modelx-bridge/pyproject.toml for why include-package-data is off.
+packages = ["modelx_mcp"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+# The tools/list JSON as --print-tools prints it; test_stdio holds them equal.
+modelx_mcp = ["tools.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "modelx_mcp.__version__" }

@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Packaging: python -m build writes dist/ and leaves *.egg-info beside each
+# pyproject.toml; an editable install leaves the same.
+dist/
+build/
+*.egg-info/

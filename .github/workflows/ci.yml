@@ -1,0 +1,215 @@
+# Every push and pull request: build both distributions, check them, then
+# install the WHEELS into a clean Python and run both packages' suites against
+# what was installed, not against this checkout. The suites are not in the
+# wheels, so they are copied into the installed packages first.
+#
+# test:    Python 3.10 to 3.14 with the newest versions pip picks there, plus
+#          one job pinned to every declared floor.
+# lifelib: test_lifelib on lifelib's own models, which the test jobs do not
+#          have, with the newest versions and with the floors.
+#
+# Measured 2026-10-07 on Linux x86-64, every job below rehearsed step by step
+# from this file, the wheels in fresh venvs, with exactly these combinations:
+# no check fails. modelx-bridge passes 830 (test_model skips 3 by design,
+# below); modelx-mcp passes 1,165 with lifelib's models staged, test_lifelib's
+# 190 included. Without them, as in the test jobs, test_lifelib reports itself
+# SKIPPED and 975 pass.
+# Windows and macOS are not measured.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the build tools
+        run: python -m pip install build==1.6.1 twine==7.0.0
+
+      - name: Build both sdists and wheels
+        run: |
+          python -m build -o dist modelx-bridge
+          python -m build -o dist modelx-mcp
+
+      - name: Check their metadata
+        run: python -m twine check --strict dist/*
+
+      # Versions equal the code's, and every file is one that is meant to ship:
+      # no tests in a wheel, no __pycache__, nothing from outside the packages.
+      - name: Check their contents
+        run: python .github/check_dists.py dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 14
+
+  test:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # pip picks pandas 2.3.3 and numpy 2.2.6 here: the newest that
+          # support 3.10. From 3.11 on it picks pandas 3.
+          - python: "3.10"
+          - python: "3.11"
+          - python: "3.12"
+          # With the jupyter extra, so the newest ipykernel is driven too.
+          - python: "3.13"
+            extra: "[jupyter]"
+          - python: "3.14"
+          # Every floor in the two pyproject.toml files at once, the jupyter
+          # extra's included.
+          - python: "3.10"
+            pins: modelx==0.33.0 pandas==2.2.2 numpy==2.0.0 openpyxl==3.1.5 mcp==1.10.0 anyio==4.5.0 ipykernel==6.19.1
+            extra: "[jupyter]"
+    name: test (${{ matrix.python }}${{ matrix.pins && ', floors' || '' }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Install the built wheels
+        run: |
+          python -m pip install "$(echo dist/modelx_bridge-*.whl)${{ matrix.extra }}" dist/modelx_mcp-*.whl ${{ matrix.pins }}
+          python -m pip freeze
+
+      - name: The installed versions are the code's
+        run: |
+          python - <<'EOF'
+          from importlib.metadata import version
+          import modelx_bridge, modelx_mcp
+          bridge = modelx_bridge.Bridge().dispatch("session.info", {})["bridge"]
+          print("modelx-bridge", version("modelx-bridge"), modelx_bridge.VERSION, bridge)
+          print("modelx-mcp", version("modelx-mcp"), modelx_mcp.__version__)
+          assert version("modelx-bridge") == modelx_bridge.VERSION == bridge
+          assert version("modelx-mcp") == modelx_mcp.__version__
+          EOF
+
+      - name: Copy the suites into the installed packages
+        run: |
+          site="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          cp -r modelx-bridge/modelx_bridge/tests "$site/modelx_bridge/tests"
+          cp -r modelx-mcp/modelx_mcp/tests "$site/modelx_mcp/tests"
+
+      # From an empty folder, so nothing in this checkout can be imported.
+      # test_model skips three checks here: one needs a file only lifelib
+      # Studio's repository holds, one a lifelib checkout beside this one, and
+      # one looks for __pycache__ in the sample, where pip's byte-compiling
+      # put it (the content check in the build job covers the wheel itself).
+      - name: modelx-bridge suites
+        working-directory: ${{ runner.temp }}
+        run: python -m modelx_bridge.tests.run_all
+
+      # No lifelib here, so test_lifelib reports itself SKIPPED, by design; the
+      # lifelib job runs it. test_stdio launches the server and drives it over
+      # real stdio.
+      - name: modelx-mcp suites
+        working-directory: ${{ runner.temp }}
+        timeout-minutes: 15
+        run: python -m modelx_mcp.tests.run_all
+
+      # The suites replace `comm` and IPython with fakes. This drives
+      # register_comm() through a real kernel over ZMQ: hello, two requests,
+      # then the model.changed event user code causes. Measured 2026-10-06: it
+      # passes with ipykernel 6.19.1 and 7.4.0; with 6.17.1, which has no
+      # `comm`, register_comm() raises ImportError and this step fails.
+      - name: A real Jupyter kernel round trip
+        if: matrix.extra == '[jupyter]'
+        working-directory: ${{ runner.temp }}
+        run: python "$GITHUB_WORKSPACE/.github/jupyter_roundtrip.py" ${{ matrix.pins && '--expect-ipykernel 6.19.1' || '' }}
+
+  lifelib:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.13"
+          - python: "3.10"
+            pins: modelx==0.33.0 pandas==2.2.2 numpy==2.0.0 openpyxl==3.1.5 mcp==1.10.0 anyio==4.5.0
+    name: lifelib (${{ matrix.python }}${{ matrix.pins && ', floors' || '' }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # lifelib is not a dependency of either package. --no-deps, so it cannot
+      # change what the wheels resolved (its one requirement, modelx>=0.32, is
+      # met already). --no-compile, so its library folders hold no __pycache__
+      # for lifelib.create to copy: measured, without it pip writes __pycache__
+      # into the model folders, BasicTerm_ME/ and BasicTerm_ME/Projection/
+      # among them.
+      - name: Install the built wheels, then lifelib
+        run: |
+          python -m pip install dist/*.whl ${{ matrix.pins }}
+          python -m pip install --no-deps --no-compile lifelib==0.17.1
+          python -m pip freeze
+
+      # lifelib.create copies a library out as lifelib ships it. Measured
+      # 2026-10-06, on 3.10 and 3.13: these three folders (8, 8 and 11 files)
+      # are byte-identical to the ones the suite's values were measured on.
+      - name: Write lifelib's models
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -c "import lifelib; lifelib.create('basiclife', 'basiclife'); lifelib.create('savings', 'savings')"
+          mkdir models
+          mv basiclife/BasicTerm_ME basiclife/BasicTerm_SE savings/CashValue_ME models/
+          ls -l models/*/_system.json
+
+      - name: Copy the suites into the installed packages
+        run: |
+          site="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          cp -r modelx-mcp/modelx_mcp/tests "$site/modelx_mcp/tests"
+
+      # test_lifelib compares computed values to 1e-9 relative, because their
+      # last digits depend on the CPU (numpy's exp, log and power round
+      # differently with and without AVX-512). A folder it cannot use makes it
+      # report SKIPPED and exit 0, so that is a failure here (checked: pointed
+      # at a missing folder, this step exits 1).
+      - name: modelx-mcp suites, test_lifelib included
+        working-directory: ${{ runner.temp }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          MODELX_MCP_MODELS: ${{ runner.temp }}/models
+        run: |
+          python -m modelx_mcp.tests.run_all | tee mcp.txt
+          if grep -q '^SKIPPED test_lifelib' mcp.txt; then
+            echo "::error::test_lifelib was skipped; this job exists to run it"
+            exit 1
+          fi

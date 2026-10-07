@@ -1,0 +1,13 @@
+# The same rules as lifelib Studio's repository, where this code is maintained.
+# The suites pin the sample model at 324,563 bytes as git stores it (LF), so a
+# Windows checkout must not convert it.
+
+* text=auto
+*.py            text eol=lf
+
+# The sample model is modelx's own text serialization. Keep it byte-stable.
+modelx-bridge/modelx_bridge/models/** text eol=lf
+
+# Binary, and must never be line-ending converted.
+*.xlsx          binary
+*.pickle        binary

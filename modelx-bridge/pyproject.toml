@@ -1,0 +1,110 @@
+[build-system]
+# 77.0.3 builds `license` as an SPDX expression with `license-files` (PEP 639);
+# measured 2026-10-06, its METADATA and file list are identical to 84.0.0's.
+# 76.1.0 refuses the string: "`project.license` must be valid exactly by one
+# definition (2 matches found)".
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modelx-bridge"
+dynamic = ["version"]
+description = "A transport-agnostic JSON protocol over modelx: the kernel side of lifelib Studio"
+readme = "README.md"
+# The code is BSD-3-Clause. The sample model in modelx_bridge/models/BasicTerm_S
+# is lifelib's, under MIT, and its licence ships beside it.
+license = "BSD-3-Clause AND MIT"
+license-files = ["LICENSE", "modelx_bridge/models/LICENSE-lifelib.txt"]
+authors = [{ name = "Fumito Hamamura" }]
+keywords = ["modelx", "lifelib", "actuarial", "jupyter", "json-rpc"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Jupyter",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Scientific/Engineering",
+]
+# Every bound below was measured 2026-10-06 on Linux x86-64: the built wheels
+# installed into fresh venvs, then both packages' suites run from there with
+# lifelib's models staged, so modelx-mcp's test_lifelib ran too. A combination
+# "passes" when modelx-bridge's 829 checks and modelx-mcp's 1,165 all pass
+# (test_model skips 3 by design outside lifelib Studio's checkout; one check
+# added 2026-10-07 makes it 830, and every job in ci.yml was re-run with it,
+# floors included). Versions below a floor were installed beside the wheels
+# with --no-deps.
+#
+# 3.10.20, 3.11.15, 3.12.3, 3.13.14 and 3.14.8 pass, each with the newest
+# versions pip picks there (on 3.10, pandas 2.3.3 and numpy 2.2.6; from 3.11 on,
+# pandas 3.0.6). 3.9 is past its end of life and was not measured.
+requires-python = ">=3.10"
+dependencies = [
+    # The 0.33 series only: the bridge reads modelx's private API, so the next
+    # modelx minor release is not assumed to work. 0.33.0, the only release in
+    # the series, passes. PyPI's 0.33.0 wheel holds the same files, byte for
+    # byte, as one built from the modelx commit lifelib Studio measures against
+    # (4fa720f), which is the one these measurements installed.
+    "modelx>=0.33.0,<0.34",
+    # 2.2.2 passes on 3.10, 3.11 and 3.12; 2.2.3 on 3.13; 2.3.3 on 3.10; 3.0.0
+    # on 3.11; 3.0.6 on 3.11 to 3.14. 2.2.0 and 2.2.1 declare numpy<2, so pip
+    # cannot install them beside numpy>=2.0 (ResolutionImpossible). pandas 2
+    # reads the sample's integer indexes as an int64 Index where pandas 3 makes
+    # a RangeIndex, so some labels arrive as np tags; protocol section 18.2
+    # allows both.
+    "pandas>=2.2.2",
+    # 2.0.0 passes (with pandas 2.2.2 on 3.10 and 3.12, and with pandas 3.0.0 on
+    # 3.11), as do 2.1.0, 2.2.6, 2.4.6 and 2.5.3. 2.0.0 also passes with every
+    # AVX-512 dispatch target turned off (NPY_DISABLE_CPU_FEATURES), the path a
+    # CPU without AVX-512 takes, which moves the last digits of BasicTerm_ME's
+    # values: test_lifelib compares them to 1e-9 relative. 1.26.4 fails 1 check,
+    # with pandas 2.3.3 on 3.10 and pandas 3.0.6 on 3.11: modelx-mcp prints a
+    # formula's error as "KeyError: 880" where numpy 2 prints "KeyError:
+    # np.int64(880)" (NEP 51 scalar reprs), and the suite pins numpy 2's text.
+    "numpy>=2.0",
+    # pandas 3 refuses an older openpyxl for read_excel. With 3.1.4 beside
+    # pandas 3.0.6, modelx opened the sample with its three tables as None after
+    # only a warning ("Pandas requires version '3.1.5' or newer of 'openpyxl'"):
+    # 23 modelx-bridge checks and 109 modelx-mcp checks failed. pandas 2 is not
+    # the reason: with pandas 2.3.3, openpyxl 3.1.0 passes.
+    "openpyxl>=3.1.5",
+]
+
+[project.optional-dependencies]
+# For modelx_bridge.jupyter.register_comm() in a Jupyter kernel. 6.19.1 is the
+# first ipykernel on PyPI that wires the `comm` package to its kernel (the one
+# before it is 6.17.1). Measured 2026-10-06 through a real kernel over ZMQ with
+# .github/jupyter_roundtrip.py (comm_open, hello, two requests, then the
+# model.changed event user code causes): 6.19.1 on 3.10 and 7.4.0 on 3.13 pass.
+# 6.17.1 fails: it does not install `comm`, so register_comm() raises an
+# ImportError that names this extra; with comm 0.2.3 added beside it, the kernel
+# answers the comm_open with "No such comm target registered: modelx-bridge".
+jupyter = ["ipykernel>=6.19.1"]
+
+[project.urls]
+Homepage = "https://github.com/fumitoh/modelx-bridge"
+Source = "https://github.com/fumitoh/modelx-bridge"
+Issues = "https://github.com/fumitoh/modelx-bridge/issues"
+Protocol = "https://github.com/fumitoh/modelx-bridge/blob/main/docs/bridge-protocol-v0.md"
+
+[tool.setuptools]
+# The tests ship in the sdist (MANIFEST.in) and never in the wheel. With
+# include-package-data left on, a subpackage left out of `packages` can still
+# be copied in as data, so it is off and the data is listed below.
+packages = ["modelx_bridge"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+# models/ has no __init__.py: BasicTerm_S travels as data, with its licence.
+modelx_bridge = ["models/**/*"]
+
+[tool.setuptools.dynamic]
+# One source of truth: VERSION in methods.py, which session.info reports as
+# `bridge`. Read statically, so building needs no modelx.
+version = { attr = "modelx_bridge.methods.VERSION" }
