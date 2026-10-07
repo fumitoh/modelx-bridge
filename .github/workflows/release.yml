@@ -12,11 +12,16 @@
 # version it needs has been published: release the bridge first.
 #
 # Uploads use PyPI trusted publishing (OIDC): there is no token in this
-# repository. NOTHING CAN BE PUBLISHED UNTIL THE OWNER CONFIGURES IT ON PyPI.
-# For each of modelx-bridge and modelx-mcp, add a (pending) trusted publisher
-# with owner fumitoh, repository modelx-bridge, workflow release.yml and
-# environment pypi. Until then a tag still builds and tests, and the upload
-# step fails at the token exchange without uploading anything.
+# repository. Both projects trust this workflow on PyPI (owner fumitoh,
+# repository modelx-bridge, workflow release.yml, environment pypi), set up
+# for their first releases on 2026-10-07. A package new to PyPI needs a
+# pending publisher with those same values, and PyPI refuses one while another
+# pending publisher has them ("already been registered for a different project
+# name"). So register one, release it (which turns it into a regular
+# publisher), then register the next; the second reuses the first's publisher.
+# Without one, a tag still builds and tests, and the upload step fails at the
+# token exchange without uploading anything. A version number, once uploaded,
+# can never be uploaded again, even after it is deleted.
 
 name: release
 
